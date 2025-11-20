@@ -1,187 +1,249 @@
-import { projectId, publicAnonKey } from './supabase/info';
+// src/utils/api.ts
+// Supabase 의존성 제거 + Node 서버(http://localhost:4000/api) 기준으로 재구성
 
-const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-50b891bd`;
+const API_BASE_URL = "http://localhost:4000/api";
 
-// Get auth token from session storage
+// ===============================
+// Auth Token (세션 토큰)
+// ===============================
+
+// 세션 스토리지에서 토큰 가져오기
 function getAuthToken(): string | null {
-  return sessionStorage.getItem('cooking_assistant_auth_token');
+  return sessionStorage.getItem("cooking_assistant_auth_token");
 }
 
-// Set auth token to session storage
+// 세션 스토리지에 토큰 저장
 export function setAuthToken(token: string) {
-  sessionStorage.setItem('cooking_assistant_auth_token', token);
+  sessionStorage.setItem("cooking_assistant_auth_token", token);
 }
 
-// Remove auth token from session storage
+// 토큰 제거
 export function removeAuthToken() {
-  sessionStorage.removeItem('cooking_assistant_auth_token');
+  sessionStorage.removeItem("cooking_assistant_auth_token");
 }
 
-// Generic API call function
+// ===============================
+// 공통 API 호출 함수
+// ===============================
 async function apiCall(
-  endpoint: string,
-  options: RequestInit = {},
-  requiresAuth = false
+    endpoint: string,
+    options: RequestInit = {},
+    requiresAuth: boolean = false
 ) {
   const headers: HeadersInit = {
-    'Content-Type': 'application/json',
-    ...options.headers,
+    "Content-Type": "application/json",
+    ...(options.headers || {}),
   };
 
   if (requiresAuth) {
     const token = getAuthToken();
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    } else {
-      headers['Authorization'] = `Bearer ${publicAnonKey}`;
+    if (!token) {
+      throw new Error("로그인이 필요합니다.");
     }
-  } else {
-    headers['Authorization'] = `Bearer ${publicAnonKey}`;
+    headers["Authorization"] = `Bearer ${token}`;
   }
 
-  try {
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-      ...options,
-      headers,
-    });
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    ...options,
+    headers,
+  });
 
-    const data = await response.json();
+  // JSON 파싱 시도 (body가 비어있을 수도 있어서 예외 처리)
+  const data = await response
+      .json()
+      .catch(() => ({} as any));
 
-    if (!response.ok) {
-      throw new Error(data.error || 'API request failed');
-    }
-
-    return data;
-  } catch (error) {
-    console.error(`API Error (${endpoint}):`, error);
-    throw error;
+  if (!response.ok) {
+    throw new Error(
+        (data && (data.error || data.message)) || "API 요청 실패"
+    );
   }
+
+  return data;
 }
 
-// ============================================
+// ===============================
 // AUTH API
-// ============================================
+// ===============================
 
+// 회원가입: POST /api/signup
 export async function signUp(email: string, password: string, name: string) {
-  return apiCall('/signup', {
-    method: 'POST',
+  return apiCall("/signup", {
+    method: "POST",
     body: JSON.stringify({ email, password, name }),
   });
 }
 
-// ============================================
-// PROFILE API
-// ============================================
+// 로그인: POST /api/login
+export async function login(email: string, password: string) {
+  return apiCall("/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+// ===============================
+// PROFILE API ( /api/profile )
+// ===============================
 
 export async function getProfile() {
-  return apiCall('/profile', {}, true);
+  return apiCall("/profile", {}, true);
 }
 
 export async function updateProfile(profileData: any) {
-  return apiCall('/profile', {
-    method: 'PUT',
-    body: JSON.stringify(profileData),
-  }, true);
+  return apiCall(
+      "/profile",
+      {
+        method: "PUT",
+        body: JSON.stringify(profileData),
+      },
+      true
+  );
 }
 
-// ============================================
-// INGREDIENTS API
-// ============================================
+// ===============================
+// INGREDIENTS API ( /api/ingredients )
+// ===============================
 
+// 재료 목록 조회
 export async function getIngredients() {
-  return apiCall('/ingredients', {}, true);
+  const res = await apiCall("/ingredients", {}, true);
+  // 백엔드: { success, count, data: [...] }
+  // 프론트가 기대: { ingredients: [...] }
+  return {
+    ingredients: res.data || res.ingredients || [],
+  };
 }
 
+// 재료 추가
 export async function addIngredient(ingredientData: any) {
-  return apiCall('/ingredients', {
-    method: 'POST',
-    body: JSON.stringify(ingredientData),
-  }, true);
+  const res = await apiCall(
+      "/ingredients",
+      {
+        method: "POST",
+        body: JSON.stringify(ingredientData),
+      },
+      true
+  );
+  // 백엔드: { success, data: ingredient }
+  return {
+    ingredient: res.data || res.ingredient,
+  };
 }
 
+// 재료 수정
 export async function updateIngredient(id: string, ingredientData: any) {
-  return apiCall(`/ingredients/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify(ingredientData),
-  }, true);
+  const res = await apiCall(
+      `/ingredients/${id}`,
+      {
+        method: "PUT",
+        body: JSON.stringify(ingredientData),
+      },
+      true
+  );
+  return {
+    ingredient: res.data || res.ingredient,
+  };
 }
 
+// 재료 삭제
 export async function deleteIngredient(id: string) {
-  return apiCall(`/ingredients/${id}`, {
-    method: 'DELETE',
-  }, true);
+  return apiCall(
+      `/ingredients/${id}`,
+      {
+        method: "DELETE",
+      },
+      true
+  );
 }
 
-// ============================================
-// SAVED RECIPES API
-// ============================================
+// ===============================
+// SAVED RECIPES API ( /api/saved-recipes )
+// ===============================
 
 export async function getSavedRecipes() {
-  return apiCall('/saved-recipes', {}, true);
+  const res = await apiCall("/saved-recipes", {}, true);
+  return {
+    savedRecipes: res.data || res.savedRecipes || [],
+  };
 }
 
 export async function saveRecipe(recipeData: any) {
-  return apiCall('/saved-recipes', {
-    method: 'POST',
-    body: JSON.stringify(recipeData),
-  }, true);
+  const res = await apiCall(
+      "/saved-recipes",
+      {
+        method: "POST",
+        body: JSON.stringify(recipeData),
+      },
+      true
+  );
+  return {
+    savedRecipe: res.data || res.savedRecipe,
+  };
 }
 
 export async function removeSavedRecipe(id: string) {
-  return apiCall(`/saved-recipes/${id}`, {
-    method: 'DELETE',
-  }, true);
+  return apiCall(
+      `/saved-recipes/${id}`,
+      {
+        method: "DELETE",
+      },
+      true
+  );
 }
 
-// ============================================
-// HEALTH CHECK
-// ============================================
+// ===============================
+// HEALTH CHECK ( /api/health )
+// ===============================
 
 export async function healthCheck() {
-  return apiCall('/health');
+  return apiCall("/health");
 }
 
-// ============================================
-// AI VOICE ASSISTANT API
-// ============================================
+// ===============================
+// AI VOICE ( /api/ai/voice/stt, tts )
+// ===============================
 
-export async function speechToText(audioBlob: Blob, currentStep?: string, recipeName?: string) {
+export async function speechToText(
+    audioBlob: Blob,
+    currentStep?: string,
+    recipeName?: string
+) {
   const formData = new FormData();
-  formData.append('audio', audioBlob);
-  if (currentStep) formData.append('currentStep', currentStep);
-  if (recipeName) formData.append('recipeName', recipeName);
+  formData.append("audio", audioBlob);
+  if (currentStep) formData.append("currentStep", currentStep);
+  if (recipeName) formData.append("recipeName", recipeName);
 
   const headers: HeadersInit = {};
-  const token = sessionStorage.getItem('cooking_assistant_auth_token');
+  const token = getAuthToken();
   if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  } else {
-    headers['Authorization'] = `Bearer ${publicAnonKey}`;
+    headers["Authorization"] = `Bearer ${token}`;
   }
 
-  try {
-    const response = await fetch(`${API_BASE_URL}/ai/voice/stt`, {
-      method: 'POST',
-      headers,
-      body: formData,
-    });
+  const response = await fetch(`${API_BASE_URL}/ai/voice/stt`, {
+    method: "POST",
+    body: formData,
+    headers,
+  });
 
-    const data = await response.json();
+  const data = await response.json().catch(() => ({} as any));
 
-    if (!response.ok) {
-      throw new Error(data.error || 'Speech to text failed');
-    }
-
-    return data;
-  } catch (error) {
-    console.error('STT API Error:', error);
-    throw error;
+  if (!response.ok) {
+    throw new Error(
+        (data && (data.error || data.message)) || "STT API 요청 실패"
+    );
   }
+
+  return data;
 }
 
 export async function textToSpeech(text: string) {
-  return apiCall('/ai/voice/tts', {
-    method: 'POST',
-    body: JSON.stringify({ text }),
-  }, true);
+  return apiCall(
+      "/ai/voice/tts",
+      {
+        method: "POST",
+        body: JSON.stringify({ text }),
+      },
+      true
+  );
 }
